@@ -1,0 +1,7 @@
+{
+  "name": "gameclaude",
+  "version": "0.1.0",
+  "description": "Three quiet mini-games in a side pane: /game opens Parola, Campo minato and Raddoppia",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
