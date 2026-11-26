@@ -7,6 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import { dayKey, dailyIndex, keyboard, normalize, parolaGuess, score } from './parola'
 import { newCampo, campoReveal, campoFlag, campoMove } from './campo'
 import { slide, raddoppiaMove, newRaddoppia, canMove } from './raddoppia'
+import { ANSWERS } from './words'
 
 // A fixed random source so tests are repeatable.
 function rng(seed = 1) {
@@ -45,6 +46,14 @@ test('parola: the daily index is stable for a local day and changes the next day
   expect(dailyIndex(a, 2000)).toBe(dailyIndex(b, 2000))
   expect(dailyIndex(c, 2000)).not.toBe(dailyIndex(a, 2000))
   expect(dailyIndex(a, 2000) >= 0 && dailyIndex(a, 2000) < 2000).toBe(true)
+  // Appending words to the list must not move a day already assigned.
+  expect(dailyIndex(a, 800)).toBe(dailyIndex(a, 900))
+})
+
+test('parola: the answer list has only unique 5-letter words', () => {
+  expect(ANSWERS.length > 700).toBe(true)
+  expect(ANSWERS.every(w => /^[A-Z]{5}$/.test(w))).toBe(true)
+  expect(new Set(ANSWERS).size).toBe(ANSWERS.length)
 })
 
 test('parola: keyboard keeps the best state of each letter', () => {

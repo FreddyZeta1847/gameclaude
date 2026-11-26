@@ -60,8 +60,9 @@ export function dayKey(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-// Days since 2026-01-01 in local time, spread over the list by a fixed prime step.
+// Days since 2026-01-01 in local time: day N uses word N of the frozen, pre-shuffled
+// list, so appending words never changes a day already assigned (wraps after the end).
 export function dailyIndex(d: Date, listLength: number): number {
   const day = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - new Date(2026, 0, 1).getTime()) / 86400000)
-  return (((day * 7919) % listLength) + listLength) % listLength
+  return ((day % listLength) + listLength) % listLength
 }
