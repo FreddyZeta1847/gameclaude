@@ -5,7 +5,7 @@
  */
 import { expect, test } from 'claude-code/testing'
 import { dayKey, dailyIndex, keyboard, normalize, parolaGuess, score } from './parola'
-import { newCampo, campoReveal, campoFlag, campoMove } from './campo'
+import { type Campo, newCampo, campoReveal, campoFlag, campoMove, elapsedMs, pauseCampo, resumeCampo } from './campo'
 import { slide, raddoppiaMove, newRaddoppia, canMove } from './raddoppia'
 import { ANSWERS } from './words'
 
@@ -71,7 +71,7 @@ test('campo: first reveal is never a mine and opens an area', () => {
 
 test('campo: revealing a mine loses; opening every safe cell wins', () => {
   let c = campoReveal(newCampo('facile'), 0, rng(5), 0)
-  const lost = campoReveal(c, c.mines[0], rng(), 1000)
+  const lost = campoReveal(c, c.mines[0]!, rng(), 1000)
   expect(lost.status).toBe('lost')
   for (let i = 0; i < 81; i++) if (!c.mines.includes(i)) c = campoReveal(c, i, rng(), 2000)
   expect(c.status).toBe('won')
@@ -90,7 +90,7 @@ test('campo: flags toggle on covered cells and block reveal; cursor stays on the
 
 test('campo: pressing on a number with all its flags placed opens the other neighbours', () => {
   // 3x3 board, one mine in the top-left corner; open the centre (a "1").
-  let c = { ...newCampo('facile'), w: 3, h: 3, count: 1, cells: '.........', mines: [0], status: 'playing' as const, startedAt: 0 }
+  let c: Campo = { ...newCampo('facile'), w: 3, h: 3, count: 1, cells: '.........', mines: [0], status: 'playing', startedAt: 0 }
   c = { ...c, cells: '....o....' }
   expect(campoReveal(c, 4, rng(), 0).cells).toBe('....o....') // no flag yet: nothing happens
   c = campoFlag(c, 0)
@@ -100,6 +100,14 @@ test('campo: pressing on a number with all its flags placed opens the other neig
   // A wrong flag makes the chord hit the real mine.
   const wrong = campoReveal(campoFlag({ ...c, cells: '....o....' }, 1), 4, rng(), 0)
   expect(wrong.status).toBe('lost')
+})
+
+test('campo: the clock pauses while the pane is closed and resumes after', () => {
+  let c = campoReveal(newCampo('facile'), 40, rng(3), 1000)
+  c = pauseCampo(c, 6000)
+  expect(elapsedMs(c, 999999)).toBe(5000)
+  c = resumeCampo(c, 100000)
+  expect(elapsedMs(c, 102000)).toBe(7000)
 })
 
 test('raddoppia: slide merges each pair once and moves to the edge', () => {

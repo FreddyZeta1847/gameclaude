@@ -11,11 +11,12 @@ export function slide(line: number[]): { line: number[]; gained: number } {
   const out: number[] = []
   let gained = 0
   for (let i = 0; i < tiles.length; i++) {
-    if (tiles[i] === tiles[i + 1]) {
-      out.push(tiles[i] * 2)
-      gained += tiles[i] * 2
+    const v = tiles[i]!
+    if (v === tiles[i + 1]) {
+      out.push(v * 2)
+      gained += v * 2
       i++
-    } else out.push(tiles[i])
+    } else out.push(v)
   }
   while (out.length < 4) out.push(0)
   return { line: out, gained }
@@ -36,7 +37,7 @@ export function spawn(grid: number[], rand: () => number): number[] {
   const empty = grid.flatMap((v, i) => (v ? [] : [i]))
   if (!empty.length) return grid
   const next = [...grid]
-  next[empty[Math.floor(rand() * empty.length)]] = rand() < 0.9 ? 2 : 4
+  next[empty[Math.floor(rand() * empty.length)]!] = rand() < 0.9 ? 2 : 4
   return next
 }
 
@@ -44,8 +45,8 @@ export function raddoppiaMove(g: Raddoppia, dir: Dir, rand: () => number): Raddo
   const grid = [...g.grid]
   let gained = 0
   for (const idx of lines(dir)) {
-    const res = slide(idx.map(i => grid[i]))
-    idx.forEach((i, j) => (grid[i] = res.line[j]))
+    const res = slide(idx.map(i => grid[i]!))
+    idx.forEach((i, j) => (grid[i] = res.line[j]!))
     gained += res.gained
   }
   if (grid.every((v, i) => v === g.grid[i])) return g

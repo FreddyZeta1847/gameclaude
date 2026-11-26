@@ -18,13 +18,15 @@ export function score(guess: string, solution: string): Mark[] {
   const marks: Mark[] = Array(5).fill('miss')
   const left: Record<string, number> = {}
   for (let i = 0; i < 5; i++) {
-    if (guess[i] === solution[i]) marks[i] = 'hit'
-    else left[solution[i]] = (left[solution[i]] ?? 0) + 1
+    const s = solution[i]!
+    if (guess[i] === s) marks[i] = 'hit'
+    else left[s] = (left[s] ?? 0) + 1
   }
   for (let i = 0; i < 5; i++) {
-    if (marks[i] !== 'hit' && left[guess[i]]) {
+    const g = guess[i]!
+    if (marks[i] !== 'hit' && left[g]) {
       marks[i] = 'near'
-      left[guess[i]]--
+      left[g]!--
     }
   }
   return marks
@@ -45,11 +47,13 @@ export function parolaGuess(game: ParolaGame, text: string, solution: string) {
 }
 
 export function keyboard(guesses: string[], solution: string): Record<string, Mark> {
-  const rank = { miss: 0, near: 1, hit: 2 }
+  const rank: Record<Mark, number> = { miss: 0, near: 1, hit: 2 }
   const keys: Record<string, Mark> = {}
   for (const g of guesses) {
     score(g, solution).forEach((m, i) => {
-      if (!keys[g[i]] || rank[m] > rank[keys[g[i]]]) keys[g[i]] = m
+      const k = g[i]!
+      const had = keys[k]
+      if (!had || rank[m] > rank[had]) keys[k] = m
     })
   }
   return keys

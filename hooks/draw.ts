@@ -33,7 +33,8 @@ export function parolaSvg(rows: { word: string; marks: Mark[] }[]): string {
   let out = ''
   for (let r = 0; r < 6; r++) for (let c = 0; c < 5; c++) {
     const x = c * (s + g), y = r * (s + g), row = rows[r]
-    if (row) out += rect(x, y, s, row.marks[c]) + text(x, y, s, row.word[c], row.marks[c] === 'miss' ? 't' : row.marks[c] === 'near' ? 'nt' : 'w', 22)
+    const mark = row?.marks[c]
+    if (row && mark) out += rect(x, y, s, mark) + text(x, y, s, row.word[c] ?? '', mark === 'miss' ? 't' : mark === 'near' ? 'nt' : 'w', 22)
     else out += rect(x, y, s, 'well')
   }
   return svg(5 * s + 4 * g, 6 * s + 5 * g, out)

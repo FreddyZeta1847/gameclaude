@@ -2,14 +2,16 @@
  * gameclaude — hooks module. `/game` opens a side pane with three turn-based games
  * (Parola, Campo minato, Raddoppia). The module keeps the game state, redraws the board
  * as SVG only when the player acts (no timer except the Campo minato clock, once a
- * second while a game runs and the pane is open) and saves to $.store after every move.
- * Keys reach it from the one-row Client in ./keys.tsx (arrows) or from Button hotkeys.
+ * second while a game runs and the pane is open) and saves to $.store shortly after
+ * every move. Arrows reach it from the one-row Client in ./keys.tsx; letters from
+ * Button hotkeys. Every move is computed inside one atom update, so two keys arriving
+ * together never start from the same old state.
  */
 import { atom, read, update } from 'claude-code'
-import type { Engine, Register } from 'claude-code'
+import type { EngineInterface as Engine, Register } from 'claude-code'
 import { ANSWERS } from './words'
 import { dailyIndex, dayKey, keyboard, parolaGuess, score, type ParolaGame } from './parola'
-import { campoFlag, campoMove, campoReveal, elapsedMs, flagsLeft, newCampo, type Campo, type Level } from './campo'
+import { campoFlag, campoMove, campoReveal, elapsedMs, flagsLeft, newCampo, pauseCampo, resumeCampo, type Campo, type Level } from './campo'
 import { canMove, newRaddoppia, raddoppiaMove, type Dir } from './raddoppia'
 import { campoSvg, keyboardSvg, parolaSvg, raddoppiaSvg } from './draw'
 import { readSave, type Save } from './save'
@@ -30,14 +32,22 @@ async function current($: Engine): Promise<Save> {
   return held ? (held as unknown as Save) : readSave(await $.store.get('data'))
 }
 
-// The board redraws at once; the disk write follows 0.4 s later, folding quick moves
-// into one write (awaiting it made each flag feel laggy).
-async function store($: Engine, next: Save, persist = true) {
-  await update($, data, () => next as unknown as Record<string, unknown>)
-  if (persist && !saveTimer) saveTimer = $.clock.after(400, () => void flushSave($))
+// Applies one move to the latest state; returns the state before and after it.
+async function mutate($: Engine, fn: (s: Save) => Save, persist = true): Promise<[Save, Save]> {
+  let before = readSave(null)
+  let after = before
+  await update($, data, prev => {
+    before = prev ? (prev as unknown as Save) : readSave(null)
+    after = fn(before)
+    return after as unknown as Record<string, unknown>
+  })
+  // The board redraws at once; the disk write follows 0.4 s later, folding quick moves.
+  if (persist && after !== before && !saveTimer) saveTimer = $.clock.after(400, () => void flushSave($))
+  return [before, after]
 }
 
 async function flushSave($: Engine) {
+  saveTimer?.cancel()
   saveTimer = undefined
   const held = await read($, data)
   if (held) await $.store.set('data', held)
@@ -57,32 +67,43 @@ function syncClock($: Engine, running: boolean) {
 
 // --- Parola -----------------------------------------------------------------------------
 
-const solutionFor = (d: Date) => ANSWERS[dailyIndex(d, ANSWERS.length)]
+const solutionFor = (d: Date): string => ANSWERS[dailyIndex(d, ANSWERS.length)]!
 
 function parolaToday(s: Save, now: Date): ParolaGame {
   const day = dayKey(now)
   return s.parola.game?.day === day ? s.parola.game : { day, guesses: [] }
 }
 
+const yesterdayOf = (day: string) => {
+  const [y = 0, m = 1, d = 1] = day.split('-').map(Number)
+  return dayKey(new Date(y, m - 1, d - 1))
+}
+
+// The streak shown today: it is broken once a whole day passed without playing.
+function liveStreak(p: Save['parola'], now: Date): number {
+  const today = dayKey(now)
+  return p.lastDay === today || p.lastDay === yesterdayOf(today) ? p.streak : 0
+}
+
 function finishParola(p: Save['parola'], game: ParolaGame, won: boolean): Save['parola'] {
   if (p.lastDay === game.day) return p
-  const [y, m, d] = game.day.split('-').map(Number)
-  const yesterday = dayKey(new Date(y, m - 1, d - 1))
-  const streak = won ? (p.lastDay === yesterday ? p.streak + 1 : 1) : 0
+  const streak = won ? (p.lastDay === yesterdayOf(game.day) ? p.streak + 1 : 1) : 0
   const dist = [...p.dist]
-  if (won) dist[game.guesses.length - 1]++
+  if (won) dist[game.guesses.length - 1] = (dist[game.guesses.length - 1] ?? 0) + 1
   return { ...p, played: p.played + 1, won: p.won + (won ? 1 : 0), streak, maxStreak: Math.max(p.maxStreak, streak), dist, lastDay: game.day }
 }
 
 async function guessWord($: Engine, text: string) {
-  const s = await current($)
   const now = new Date()
-  const res = parolaGuess(parolaToday(s, now), text, solutionFor(now))
-  if (res.error) return say($, res.error)
-  let parola = { ...s.parola, game: res.game }
-  if (res.status !== 'playing') parola = finishParola(parola, res.game, res.status === 'won')
-  await store($, { ...s, parola })
-  await say($, '')
+  let error = ''
+  await mutate($, s => {
+    const res = parolaGuess(parolaToday(s, now), text, solutionFor(now))
+    error = res.error
+    if (error) return s
+    const parola = { ...s.parola, game: res.game }
+    return { ...s, parola: res.status === 'playing' ? parola : finishParola(parola, res.game, res.status === 'won') }
+  })
+  await say($, error)
 }
 
 // --- Campo minato -----------------------------------------------------------------------
@@ -96,59 +117,61 @@ function finishCampo(campo: Save['campo'], c: Campo): Save['campo'] {
   return { ...campo, stats: { ...campo.stats, [c.level]: { played: st.played + 1, won: st.won + (won ? 1 : 0), bestMs } } }
 }
 
+function campoStep(c: Campo, act: CampoAct, now: number, level?: Level): Campo {
+  if (act === 'new') return newCampo(level ?? c.level)
+  if (act === 'open') return campoReveal(c, c.cursor, Math.random, now)
+  if (act === 'flag') return campoFlag(c, c.cursor)
+  return campoMove(c, act)
+}
+
 async function campoAct($: Engine, act: CampoAct, level?: Level) {
-  const s = await current($)
-  const before = s.campo.game ?? newCampo(s.campo.level)
   const now = Date.now()
-  let c: Campo
-  if (act === 'new') c = newCampo(level ?? before.level)
-  else if (act === 'open') c = campoReveal(before, before.cursor, Math.random, now)
-  else if (act === 'flag') c = campoFlag(before, before.cursor)
-  else c = campoMove(before, act)
-  let campo: Save['campo'] = { ...s.campo, level: c.level, game: c }
-  const ended = (c.status === 'won' || c.status === 'lost') && before.status !== c.status
-  if (ended) campo = finishCampo(campo, c)
+  const isMove = act === 'up' || act === 'down' || act === 'left' || act === 'right'
   // Cursor moves stay in session memory only: they are not game moves.
-  await store($, { ...s, campo }, act !== 'up' && act !== 'down' && act !== 'left' && act !== 'right')
+  const [before, after] = await mutate($, s => {
+    const prev = resumeCampo(s.campo.game ?? newCampo(s.campo.level), now)
+    const c = campoStep(prev, act, now, level)
+    const ended = (c.status === 'won' || c.status === 'lost') && prev.status !== c.status
+    const campo = { ...s.campo, level: c.level, game: c }
+    return { ...s, campo: ended ? finishCampo(campo, c) : campo }
+  }, !isMove)
+  const c = after.campo.game!
   syncClock($, c.status === 'playing')
-  if (ended) await say($, c.status === 'won' ? `Campo libero in ${fmt(c.elapsed)}!` : 'Boom. Premi Nuova per riprovare.')
-  else await say($, '')
+  const ended = before.campo.game?.status !== c.status && (c.status === 'won' || c.status === 'lost')
+  if (ended) await say($, c.status === 'won' ? `Campo libero in ${fmt(c.elapsed)}!` : 'Boom. Scegli una nuova partita per riprovare.')
+  else if (!isMove) await say($, '')
 }
 
 // --- Raddoppia --------------------------------------------------------------------------
 
 async function raddoppiaAct($: Engine, act: Dir | 'new') {
-  const s = await current($)
-  const before = s.raddoppia.game ?? newRaddoppia(Math.random)
-  const g = act === 'new' ? newRaddoppia(Math.random) : raddoppiaMove(before, act, Math.random)
-  if (g === before && act !== 'new') return
-  const over = !canMove(g.grid)
-  const r = s.raddoppia
-  const raddoppia = {
-    ...r, game: g, best: Math.max(r.best, g.score), maxTile: Math.max(r.maxTile, ...g.grid),
-    played: r.played + (over ? 1 : 0),
-  }
-  await store($, { ...s, raddoppia })
-  await say($, over ? `Nessuna mossa possibile. Punti: ${g.score}.` : '')
+  let over = false
+  const [, after] = await mutate($, s => {
+    const r = s.raddoppia
+    const prev = r.game ?? newRaddoppia(Math.random)
+    const g = act === 'new' ? newRaddoppia(Math.random) : raddoppiaMove(prev, act, Math.random)
+    if (g === prev && act !== 'new') return s
+    over = !canMove(g.grid)
+    return { ...s, raddoppia: { ...r, game: g, best: Math.max(r.best, g.score), maxTile: Math.max(r.maxTile, ...g.grid), played: r.played + (over ? 1 : 0) } }
+  })
+  await say($, over ? `Nessuna mossa possibile. Punti: ${after.raddoppia.game?.score ?? 0}.` : '')
 }
 
 // --- Input routing ----------------------------------------------------------------------
 
-const ARROWS: Record<string, Dir> = { up: 'up', down: 'down', left: 'left', right: 'right' }
+const ARROWS = ['up', 'down', 'left', 'right']
 
+// Keys from the keyboard zone: arrows, Enter/space and "f". Letters handled here have no
+// Button hotkey, so one press never acts twice.
 async function onKey($: Engine, key: string) {
   const t = await read($, tab)
-  const dir = ARROWS[key]
+  const dir = ARROWS.includes(key) ? (key as Dir) : undefined
   if (t === 'campo') {
     if (dir) return campoAct($, dir)
     if (key === 'return' || key === ' ' || key === 'space') return campoAct($, 'open')
     if (key === 'f') return campoAct($, 'flag')
-    if (key === 'n') return campoAct($, 'new')
   }
-  if (t === 'raddoppia') {
-    if (dir) return raddoppiaAct($, dir)
-    if (key === 'n') return raddoppiaAct($, 'new')
-  }
+  if (t === 'raddoppia' && dir) return raddoppiaAct($, dir)
 }
 
 async function setTab($: Engine, next: string) {
@@ -156,6 +179,22 @@ async function setTab($: Engine, next: string) {
   await say($, '')
   const s = await current($)
   syncClock($, next === 'campo' && s.campo.game?.status === 'playing')
+}
+
+async function openPane($: Engine) {
+  const now = Date.now()
+  const loaded = await current($)
+  await mutate($, () => (loaded.campo.game ? { ...loaded, campo: { ...loaded.campo, game: resumeCampo(loaded.campo.game, now) } } : loaded), false)
+  if (!loaded.raddoppia.game) await raddoppiaAct($, 'new')
+  await $.ui.open({ id: PANE, title: 'gameclaude', focus: true })
+  syncClock($, (await read($, tab)) === 'campo' && loaded.campo.game?.status === 'playing')
+}
+
+async function closePane($: Engine) {
+  syncClock($, false)
+  const now = Date.now()
+  await mutate($, s => (s.campo.game ? { ...s, campo: { ...s.campo, game: pauseCampo(s.campo.game, now) } } : s), false)
+  await flushSave($)
 }
 
 // --- Drawing ----------------------------------------------------------------------------
@@ -180,7 +219,7 @@ function parolaView($: Engine, ui: any, s: Save) {
     <Box flexDirection="column" gap={1}>
       <Box flexDirection="row" justifyContent="space-between">
         <Text bold>Parola del giorno</Text>
-        <Text dimColor>tentativo {Math.min(game.guesses.length + 1, 6)} di 6 · serie {p.streak}</Text>
+        <Text dimColor>tentativo {Math.min(game.guesses.length + 1, 6)} di 6 · serie {liveStreak(p, now)}</Text>
       </Box>
       <Svg source={parolaSvg(rows)} alt={`Griglia di Parola: ${game.guesses.join(', ') || 'nessun tentativo'}`} width={230} />
       {over ? (
@@ -196,16 +235,6 @@ function parolaView($: Engine, ui: any, s: Save) {
   )
 }
 
-function arrowButtons($: Engine, ui: any, act: (d: Dir) => Promise<unknown>) {
-  const { Button } = ui
-  return [
-    <Button key="up" label="↑" hotkey="w" onPress={() => void act('up')} />,
-    <Button key="down" label="↓" hotkey="s" onPress={() => void act('down')} />,
-    <Button key="left" label="←" hotkey="a" onPress={() => void act('left')} />,
-    <Button key="right" label="→" hotkey="d" onPress={() => void act('right')} />,
-  ]
-}
-
 function campoView($: Engine, ui: any, s: Save) {
   const { Box, Text, Svg, Button, Client } = ui
   const c = s.campo.game ?? newCampo(s.campo.level)
@@ -216,14 +245,12 @@ function campoView($: Engine, ui: any, s: Save) {
         <Text bold>Campo minato · {LEVEL_NAME[c.level]}</Text>
         <Text dimColor>{fmt(elapsedMs(c, Date.now()))} · mine {flagsLeft(c)}{best !== undefined ? ` · record ${fmt(best)}` : ''}</Text>
       </Box>
-      <Svg source={campoSvg(c)} alt={`Campo minato ${c.w} per ${c.h}, ${c.status === 'lost' ? 'partita persa' : c.status === 'won' ? 'partita vinta' : 'in corso'}`} width={316} />
+      <Svg source={campoSvg(c)} alt={`Campo minato ${c.w} per ${c.h}, ${c.status === 'lost' ? 'partita persa' : c.status === 'won' ? 'partita vinta' : 'in corso'}`} />
       <Client key="keys-campo" module="./keys.tsx" props={{ hint: 'Clicca qui, poi frecce · invio scopre · f bandierina' }} />
       <Box flexDirection="row" gap={1}>
-        <Button key="flag" label="Bandierina" hotkey="f" onPress={() => void campoAct($, 'flag')} />
-      </Box>
-      <Box flexDirection="row" gap={1}>
+        <Button key="flag" label="Bandierina" onPress={() => void campoAct($, 'flag')} />
         {(['facile', 'medio', 'difficile'] as Level[]).map(l => (
-          <Button key={`lvl-${l}`} label={`Nuova ${LEVEL_NAME[l].toLowerCase()}`} variant={l === c.level ? 'primary' : 'secondary'} onPress={() => void campoAct($, 'new', l)} />
+          <Button key={`lvl-${l}`} label={LEVEL_NAME[l]} variant={l === c.level ? 'primary' : 'secondary'} onPress={() => void campoAct($, 'new', l)} />
         ))}
       </Box>
     </Box>
@@ -233,16 +260,20 @@ function campoView($: Engine, ui: any, s: Save) {
 function raddoppiaView($: Engine, ui: any, s: Save) {
   const { Box, Text, Svg, Button, Client } = ui
   const g = s.raddoppia.game ?? { grid: Array(16).fill(0), score: 0 }
+  const move = (d: Dir) => () => void raddoppiaAct($, d)
   return (
     <Box flexDirection="column" gap={1}>
       <Box flexDirection="row" justifyContent="space-between">
         <Text bold>Raddoppia</Text>
-        <Text dimColor>punti {g.score} · record {s.raddoppia.best}</Text>
+        <Text dimColor>punti {g.score} · record {s.raddoppia.best} · tessera max {s.raddoppia.maxTile}</Text>
       </Box>
       <Svg source={raddoppiaSvg(g.grid)} alt={`Griglia di Raddoppia, punti ${g.score}`} width={300} />
       <Client key="keys-raddoppia" module="./keys.tsx" props={{ hint: 'Clicca qui e usa le frecce' }} />
       <Box flexDirection="row" gap={1}>
-        {arrowButtons($, ui, d => raddoppiaAct($, d))}
+        <Button key="up" label="↑" hotkey="w" onPress={move('up')} />
+        <Button key="down" label="↓" hotkey="s" onPress={move('down')} />
+        <Button key="left" label="←" hotkey="a" onPress={move('left')} />
+        <Button key="right" label="→" hotkey="d" onPress={move('right')} />
         <Button key="new" label="Nuova partita" hotkey="n" onPress={() => void raddoppiaAct($, 'new')} />
       </Box>
     </Box>
@@ -267,20 +298,18 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'game' }, async $ => {
-    await store($, await current($), false)
-    if ((await current($)).raddoppia.game === undefined) await raddoppiaAct($, 'new')
-    await $.ui.open({ id: PANE, title: 'gameclaude', focus: true })
+    await openPane($)
     return { text: 'Pannello dei minigiochi aperto.' }
   })
 
   on('ui.message', async ($, e) => {
     const key = (e.data as { key?: string })?.key
     if (key) await onKey($, key)
-    return { element: e.element }
+    return {}
   })
 
   on('ui.close', async ($, e, next) => {
-    if ((e as { id?: string }).id === PANE) syncClock($, false)
+    if ((e as { id?: string }).id === PANE) await closePane($)
     return next(e)
   })
 

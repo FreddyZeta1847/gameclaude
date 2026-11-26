@@ -2,7 +2,9 @@
  * gameclaude — Campo minato game logic (pure functions, no engine). The board is a
  * string with one character per cell: '.' covered, 'o' open, 'f' flagged. Mines are
  * placed on the first reveal, away from the revealed cell and its neighbours, so the
- * first move never loses. Time is kept as elapsed milliseconds plus a start mark.
+ * first move never loses. Time is kept as elapsed milliseconds plus a start mark;
+ * a negative start mark means the clock is paused (pane closed).
+ * "Difficile" is 16 wide and 30 tall so it stays readable in a narrow side pane.
  */
 export type Level = 'facile' | 'medio' | 'difficile'
 export type CampoStatus = 'ready' | 'playing' | 'won' | 'lost'
@@ -14,7 +16,7 @@ export type Campo = {
 export type Dir = 'up' | 'down' | 'left' | 'right'
 
 export const LEVELS: Record<Level, [number, number, number]> = {
-  facile: [9, 9, 10], medio: [16, 16, 40], difficile: [30, 16, 99],
+  facile: [9, 9, 10], medio: [16, 16, 40], difficile: [16, 30, 99],
 }
 
 export function newCampo(level: Level): Campo {
@@ -40,7 +42,7 @@ function placeMines(c: Campo, safe: number, rand: () => number): number[] {
   const free = [...Array(c.w * c.h).keys()].filter(i => !banned.has(i))
   for (let i = free.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1))
-    ;[free[i], free[j]] = [free[j], free[i]]
+    ;[free[i], free[j]] = [free[j]!, free[i]!]
   }
   return free.slice(0, c.count)
 }
@@ -77,7 +79,7 @@ function chord(c: Campo, i: number, rand: () => number, now: number): Campo {
 }
 
 function stop(c: Campo, status: CampoStatus, now: number): Campo {
-  return { ...c, status, elapsed: c.elapsed + (now - c.startedAt) }
+  return { ...c, status, elapsed: elapsedMs(c, now) }
 }
 
 export function campoFlag(c: Campo, i: number): Campo {
@@ -94,7 +96,15 @@ export function campoMove(c: Campo, dir: Dir): Campo {
 }
 
 export function elapsedMs(c: Campo, now: number): number {
-  return c.status === 'playing' ? c.elapsed + (now - c.startedAt) : c.elapsed
+  return c.status === 'playing' && c.startedAt >= 0 ? c.elapsed + (now - c.startedAt) : c.elapsed
+}
+
+export function pauseCampo(c: Campo, now: number): Campo {
+  return c.status === 'playing' && c.startedAt >= 0 ? { ...c, elapsed: elapsedMs(c, now), startedAt: -1 } : c
+}
+
+export function resumeCampo(c: Campo, now: number): Campo {
+  return c.status === 'playing' && c.startedAt < 0 ? { ...c, startedAt: now } : c
 }
 
 export function flagsLeft(c: Campo): number {
