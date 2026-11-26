@@ -46,7 +46,9 @@ function placeMines(c: Campo, safe: number, rand: () => number): number[] {
 }
 
 export function campoReveal(c: Campo, i: number, rand: () => number, now: number): Campo {
-  if (c.status === 'won' || c.status === 'lost' || c.cells[i] !== '.') return c
+  if (c.status === 'won' || c.status === 'lost') return c
+  if (c.cells[i] === 'o') return chord(c, i, rand, now)
+  if (c.cells[i] !== '.') return c
   let next = c
   if (c.status === 'ready') next = { ...c, mines: placeMines(c, i, rand), status: 'playing', startedAt: now }
   if (next.mines.includes(i)) return stop({ ...next, cells: next.cells.slice(0, i) + 'o' + next.cells.slice(i + 1) }, 'lost', now)
@@ -61,6 +63,17 @@ export function campoReveal(c: Campo, i: number, rand: () => number, now: number
   next = { ...next, cells: cells.join('') }
   const opened = cells.filter(x => x === 'o').length
   return opened === next.w * next.h - next.count ? stop(next, 'won', now) : next
+}
+
+// Classic "chord": on an open number whose flags around it match the number, open every
+// other covered neighbour at once (a wrong flag means hitting the real mine).
+function chord(c: Campo, i: number, rand: () => number, now: number): Campo {
+  const around = neighbours(c, i)
+  const n = minesAround(c, i)
+  if (!n || around.filter(k => c.cells[k] === 'f').length !== n) return c
+  let next = c
+  for (const k of around) if (next.cells[k] === '.') next = campoReveal(next, k, rand, now)
+  return next
 }
 
 function stop(c: Campo, status: CampoStatus, now: number): Campo {

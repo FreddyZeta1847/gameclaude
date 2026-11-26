@@ -21,6 +21,7 @@ const msg = atom({ plugin: 'gameclaude', key: 'msg' } as const, '', { shape: 'ms
 const tick = atom({ plugin: 'gameclaude', key: 'tick' } as const, 0, { shape: 'tick-1' })
 
 let clock: { cancel: () => void } | undefined
+let saveTimer: { cancel: () => void } | undefined
 
 // --- Data -------------------------------------------------------------------------------
 
@@ -29,9 +30,17 @@ async function current($: Engine): Promise<Save> {
   return held ? (held as unknown as Save) : readSave(await $.store.get('data'))
 }
 
+// The board redraws at once; the disk write follows 0.4 s later, folding quick moves
+// into one write (awaiting it made each flag feel laggy).
 async function store($: Engine, next: Save, persist = true) {
   await update($, data, () => next as unknown as Record<string, unknown>)
-  if (persist) await $.store.set('data', next)
+  if (persist && !saveTimer) saveTimer = $.clock.after(400, () => void flushSave($))
+}
+
+async function flushSave($: Engine) {
+  saveTimer = undefined
+  const held = await read($, data)
+  if (held) await $.store.set('data', held)
 }
 
 async function say($: Engine, text: string) {

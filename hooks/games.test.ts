@@ -88,6 +88,20 @@ test('campo: flags toggle on covered cells and block reveal; cursor stays on the
   expect(campoMove({ ...c, cursor: 0 }, 'right').cursor).toBe(1)
 })
 
+test('campo: pressing on a number with all its flags placed opens the other neighbours', () => {
+  // 3x3 board, one mine in the top-left corner; open the centre (a "1").
+  let c = { ...newCampo('facile'), w: 3, h: 3, count: 1, cells: '.........', mines: [0], status: 'playing' as const, startedAt: 0 }
+  c = { ...c, cells: '....o....' }
+  expect(campoReveal(c, 4, rng(), 0).cells).toBe('....o....') // no flag yet: nothing happens
+  c = campoFlag(c, 0)
+  const opened = campoReveal(c, 4, rng(), 0)
+  expect(opened.cells).toBe('fooooooo'.slice(0, 1) + 'oooooooo')
+  expect(opened.status).toBe('won')
+  // A wrong flag makes the chord hit the real mine.
+  const wrong = campoReveal(campoFlag({ ...c, cells: '....o....' }, 1), 4, rng(), 0)
+  expect(wrong.status).toBe('lost')
+})
+
 test('raddoppia: slide merges each pair once and moves to the edge', () => {
   expect(slide([2, 2, 4, 0])).toEqual({ line: [4, 4, 0, 0], gained: 4 })
   expect(slide([2, 2, 2, 2])).toEqual({ line: [4, 4, 0, 0], gained: 8 })
