@@ -141,7 +141,7 @@ async function onKey($: Engine, key: string) {
   const dir = ARROWS[key]
   if (t === 'campo') {
     if (dir) return campoAct($, dir)
-    if (key === 'return' || key === ' ' || key === 'space' || key === 'o') return campoAct($, 'open')
+    if (key === 'return' || key === ' ' || key === 'space') return campoAct($, 'open')
     if (key === 'f') return campoAct($, 'flag')
     if (key === 'n') return campoAct($, 'new')
   }
@@ -219,8 +219,6 @@ function campoView($: Engine, ui: any, s: Save) {
       <Svg source={campoSvg(c)} alt={`Campo minato ${c.w} per ${c.h}, ${c.status === 'lost' ? 'partita persa' : c.status === 'won' ? 'partita vinta' : 'in corso'}`} width={316} />
       <Client key="keys-campo" module="./keys.tsx" props={{ hint: 'Clicca qui, poi frecce · invio scopre · f bandierina' }} />
       <Box flexDirection="row" gap={1}>
-        {arrowButtons($, ui, d => campoAct($, d))}
-        <Button key="open" label="Scopri" hotkey="o" onPress={() => void campoAct($, 'open')} />
         <Button key="flag" label="Bandierina" hotkey="f" onPress={() => void campoAct($, 'flag')} />
       </Box>
       <Box flexDirection="row" gap={1}>
