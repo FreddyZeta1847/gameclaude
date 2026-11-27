@@ -2,7 +2,7 @@
  * gameclaude — the saved data: one object with its own data version `v` (separate from
  * the mod version), stats per game and the game in progress, written to $.store under
  * "data" after every move. New fields are only ever added; a missing field is read with
- * its default (decisions.md, "Dati e salvataggio").
+ * its default.
  */
 import type { ParolaGame } from './parola'
 import type { Campo, Level } from './campo'

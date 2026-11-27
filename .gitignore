@@ -1,4 +1,6 @@
-mockups/shots/
-mockups/shots-svg/
-.claude/coordination/
+# Local working files, not part of the published mod
+blueprint/
+mockups/
+.claude/
+tsconfig.json
 node_modules/

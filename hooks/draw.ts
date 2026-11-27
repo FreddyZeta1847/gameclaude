@@ -3,7 +3,7 @@
  * Each SVG carries both palettes in a <style> block and picks the dark one with
  * `@media (prefers-color-scheme: dark)`: the mod cannot ask the app for its theme, but
  * the desktop app applies the media query inside the image (verified in the SVG probe).
- * Parola uses green (right place) and yellow (elsewhere), as Federico asked.
+ * Parola uses green (right place) and yellow (elsewhere).
  * Boards are drawn at a fixed internal size and scaled by the Svg element's width.
  */
 import type { Mark } from './parola'

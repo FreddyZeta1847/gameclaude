@@ -1,7 +1,19 @@
 {
   "name": "gameclaude",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Three quiet mini-games in a side pane: /game opens Parola, Campo minato and Raddoppia",
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "FreddyZeta1847"
+  },
+  "homepage": "https://github.com/FreddyZeta1847/gameclaude",
+  "repository": "https://github.com/FreddyZeta1847/gameclaude",
+  "keywords": [
+    "game",
+    "minesweeper",
+    "word-game",
+    "puzzle",
+    "pane"
+  ]
 }

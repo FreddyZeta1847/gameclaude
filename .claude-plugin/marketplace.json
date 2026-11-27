@@ -1,0 +1,13 @@
+{
+  "name": "gameclaude",
+  "owner": {
+    "name": "FreddyZeta1847"
+  },
+  "plugins": [
+    {
+      "name": "gameclaude",
+      "source": "./",
+      "description": "Three quiet mini-games in a side pane: /game opens Parola, Campo minato and Raddoppia"
+    }
+  ]
+}

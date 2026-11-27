@@ -2,7 +2,7 @@
  * gameclaude — Parola game logic (pure functions, no engine): scoring a guess against
  * the solution, the keyboard colours, playing a guess, and the word of the day.
  * The daily word depends on the local date and on the ORDER of the answer list, so
- * both `dailyIndex` and the list order are frozen once published (decisions.md).
+ * both `dailyIndex` and the list order are frozen once published.
  */
 export type Mark = 'hit' | 'near' | 'miss'
 export type ParolaGame = { day: string; guesses: string[] }

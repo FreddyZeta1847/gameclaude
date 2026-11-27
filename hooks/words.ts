@@ -1,6 +1,6 @@
 /*
  * gameclaude — the Parola answer list: common Italian words of 5 letters, written for
- * this project (no external word list, decisions.md). The order was shuffled once and
+ * this project (no external word list). The order was shuffled once and
  * is FROZEN: day N of the calendar uses word N, so words may only ever be APPENDED at
  * the end (bump LIST_V in save.ts when the list grows), never reordered or removed.
  */
