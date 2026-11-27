@@ -1,7 +1,7 @@
 /*
  * gameclaude — state contract: the open tab, the saved data (mirrored to $.store on
  * every move; its real shape is `Save` in hooks/save.ts, kept loose here so the
- * contract stays types-only), a short message line and the Campo minato clock tick.
+ * contract stays types-only), and a short message line.
  */
 declare module 'claude-code' {
   interface PluginState {
@@ -9,7 +9,6 @@ declare module 'claude-code' {
       tab: Shaped<string>
       data: Shaped<Record<string, unknown> | null>
       msg: Shaped<string>
-      tick: Shaped<number>
     }
   }
 }

@@ -1,8 +1,8 @@
 /*
  * gameclaude — hooks module. `/game` opens a side pane with three turn-based games
  * (Parola, Campo minato, Raddoppia). The module keeps the game state, redraws the board
- * as SVG only when the player acts (no timer except the Campo minato clock, once a
- * second while a game runs and the pane is open) and saves to $.store shortly after
+ * as SVG only when the player acts (the Campo minato clock ticks inside the keyboard
+ * zone, ./keys.tsx, not here) and saves to $.store shortly after
  * every move. Arrows reach it from the one-row Client in ./keys.tsx; letters from
  * Button hotkeys. Every move is computed inside one atom update, so two keys arriving
  * together never start from the same old state.
@@ -11,7 +11,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Engine, Register } from 'claude-code'
 import { ANSWERS } from './words'
 import { dailyIndex, dayKey, keyboard, parolaGuess, score, type ParolaGame } from './parola'
-import { campoFlag, campoMove, campoReveal, elapsedMs, flagsLeft, newCampo, pauseCampo, resumeCampo, type Campo, type Level } from './campo'
+import { campoFlag, campoMove, campoReveal, flagsLeft, newCampo, pauseCampo, resumeCampo, type Campo, type Level } from './campo'
 import { canMove, newRaddoppia, raddoppiaMove, type Dir } from './raddoppia'
 import { campoSvg, keyboardSvg, parolaSvg, raddoppiaSvg } from './draw'
 import { readSave, type Save } from './save'
@@ -20,9 +20,7 @@ const PANE = 'gameclaude'
 const tab = atom({ plugin: 'gameclaude', key: 'tab' } as const, 'parola', { shape: 'tab-1' })
 const data = atom({ plugin: 'gameclaude', key: 'data' } as const, null, { shape: 'data-1' })
 const msg = atom({ plugin: 'gameclaude', key: 'msg' } as const, '', { shape: 'msg-1' })
-const tick = atom({ plugin: 'gameclaude', key: 'tick' } as const, 0, { shape: 'tick-1' })
 
-let clock: { cancel: () => void } | undefined
 let saveTimer: { cancel: () => void } | undefined
 
 // --- Data -------------------------------------------------------------------------------
@@ -55,14 +53,6 @@ async function flushSave($: Engine) {
 
 async function say($: Engine, text: string) {
   await update($, msg, () => text)
-}
-
-function syncClock($: Engine, running: boolean) {
-  if (running && !clock) clock = $.clock.every(1000, () => void update($, tick, n => n + 1))
-  if (!running && clock) {
-    clock.cancel()
-    clock = undefined
-  }
 }
 
 // --- Parola -----------------------------------------------------------------------------
@@ -136,7 +126,6 @@ async function campoAct($: Engine, act: CampoAct, level?: Level) {
     return { ...s, campo: ended ? finishCampo(campo, c) : campo }
   }, !isMove)
   const c = after.campo.game!
-  syncClock($, c.status === 'playing')
   const ended = before.campo.game?.status !== c.status && (c.status === 'won' || c.status === 'lost')
   if (ended) await say($, c.status === 'won' ? `Campo libero in ${fmt(c.elapsed)}!` : 'Boom. Scegli una nuova partita per riprovare.')
   else if (!isMove) await say($, '')
@@ -177,8 +166,6 @@ async function onKey($: Engine, key: string) {
 async function setTab($: Engine, next: string) {
   await update($, tab, () => next)
   await say($, '')
-  const s = await current($)
-  syncClock($, next === 'campo' && s.campo.game?.status === 'playing')
 }
 
 async function openPane($: Engine) {
@@ -187,11 +174,9 @@ async function openPane($: Engine) {
   await mutate($, () => (loaded.campo.game ? { ...loaded, campo: { ...loaded.campo, game: resumeCampo(loaded.campo.game, now) } } : loaded), false)
   if (!loaded.raddoppia.game) await raddoppiaAct($, 'new')
   await $.ui.open({ id: PANE, title: 'gameclaude', focus: true })
-  syncClock($, (await read($, tab)) === 'campo' && loaded.campo.game?.status === 'playing')
 }
 
 async function closePane($: Engine) {
-  syncClock($, false)
   const now = Date.now()
   await mutate($, s => (s.campo.game ? { ...s, campo: { ...s.campo, game: pauseCampo(s.campo.game, now) } } : s), false)
   await flushSave($)
@@ -243,10 +228,10 @@ function campoView($: Engine, ui: any, s: Save) {
     <Box flexDirection="column" gap={1}>
       <Box flexDirection="row" justifyContent="space-between">
         <Text bold>Campo minato · {LEVEL_NAME[c.level]}</Text>
-        <Text dimColor>{fmt(elapsedMs(c, Date.now()))} · mine {flagsLeft(c)}{best !== undefined ? ` · record ${fmt(best)}` : ''}</Text>
+        <Text dimColor>mine {flagsLeft(c)}{best !== undefined ? ` · record ${fmt(best)}` : ''}</Text>
       </Box>
       <Svg source={campoSvg(c)} alt={`Campo minato ${c.w} per ${c.h}, ${c.status === 'lost' ? 'partita persa' : c.status === 'won' ? 'partita vinta' : 'in corso'}`} />
-      <Client key="keys-campo" module="./keys.tsx" props={{ hint: 'Clicca qui, poi frecce · invio scopre · f bandierina' }} />
+      <Client key="keys-campo" module="./keys.tsx" props={{ hint: 'Clicca qui, poi frecce · invio scopre · f bandierina', clock: { elapsed: c.elapsed, startedAt: c.startedAt, running: c.status === 'playing' && c.startedAt >= 0 } }} />
       <Box flexDirection="row" gap={1}>
         <Button key="flag" label="Bandierina" onPress={() => void campoAct($, 'flag')} />
         {(['facile', 'medio', 'difficile'] as Level[]).map(l => (
@@ -319,7 +304,6 @@ export const register: Register = on => {
     const t = await read($, tab)
     const s = await current($)
     const line = await read($, msg)
-    await read($, tick) // redraw the Campo minato clock once a second while it runs
     if ((e.props as { placement?: string })?.placement === 'widget') return <Text>{widgetLine(t, s)}</Text>
     const view = t === 'campo' ? campoView($, ui, s) : t === 'raddoppia' ? raddoppiaView($, ui, s) : parolaView($, ui, s)
     return (
